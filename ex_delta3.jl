@@ -30,6 +30,7 @@ using OrdinaryDiffEq
 include("psmethod.jl")
 
 const method = "LGR"
+const integral = true
 const N = 6
 
 #
@@ -195,22 +196,13 @@ function delta3()
   #set_optimizer_attribute(model, "mumps_scaling", 8)
   #set_optimizer_attribute(model, "nlp_scaling_method", "none")
 
-  tau, w, D, K, P = psmethod(method, N)
+  tau, xtau, w, D, A, K, P = psmethod(method, N)
 
   #
   # Initial Guess Generation
   #
   # [ Based on Benson(2005) but launch with fixed inertial heading 45 degrees up and due east ]
   #
-
-  # need all the noncollated points for the guess
-  odetau = tau
-  if method == "LGR"
-      odetau = [ -1; odetau ]
-  end
-  if method == "LG"
-      odetau = [ -1; odetau; 1 ]
-  end
 
   # inertial heading
   elev = deg2rad(45)
@@ -240,44 +232,44 @@ function delta3()
   p = [ u_ecef; T1s; mdot1s; dt1s ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
-  sol = solve(prob, Tsit5(), saveat=odetau)
+  sol = solve(prob, Tsit5(), saveat=xtau)
 
-  r1init = hcat(sol(odetau)...)[1:3, :]
-  v1init = hcat(sol(odetau)...)[4:6, :]
-  m1init = hcat(sol(odetau)...)[7, :]
+  r1init = hcat(sol(xtau)...)[1:3, :]
+  v1init = hcat(sol(xtau)...)[4:6, :]
+  m1init = hcat(sol(xtau)...)[7, :]
 
   # stage 2
   x0 = [ r1init[:,end]; v1init[:,end]; m2is ]
   p = [ u_ecef; T2s; mdot2s; dt2s ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
-  sol = solve(prob, Tsit5(), saveat=odetau)
+  sol = solve(prob, Tsit5(), saveat=xtau)
 
-  r2init = hcat(sol(odetau)...)[1:3, :]
-  v2init = hcat(sol(odetau)...)[4:6, :]
-  m2init = hcat(sol(odetau)...)[7, :]
+  r2init = hcat(sol(xtau)...)[1:3, :]
+  v2init = hcat(sol(xtau)...)[4:6, :]
+  m2init = hcat(sol(xtau)...)[7, :]
 
   # stage 3
   x0 = [ r2init[:,end]; v2init[:,end]; m3is ]
   p = [ u_ecef; T3s; mdot3s; dt3s ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
-  sol = solve(prob, Tsit5(), saveat=odetau)
+  sol = solve(prob, Tsit5(), saveat=xtau)
 
-  r3init = hcat(sol(odetau)...)[1:3, :]
-  v3init = hcat(sol(odetau)...)[4:6, :]
-  m3init = hcat(sol(odetau)...)[7, :]
+  r3init = hcat(sol(xtau)...)[1:3, :]
+  v3init = hcat(sol(xtau)...)[4:6, :]
+  m3init = hcat(sol(xtau)...)[7, :]
 
   # stage 4
   x0 = [ r3init[:,end]; v3init[:,end]; m4is ]
   p = [ u_ecef; T4s; mdot4s; dt4s ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
-  sol = solve(prob, Tsit5(), saveat=odetau)
+  sol = solve(prob, Tsit5(), saveat=xtau)
 
-  r4init = hcat(sol(odetau)...)[1:3, :]
-  v4init = hcat(sol(odetau)...)[4:6, :]
-  m4init = hcat(sol(odetau)...)[7, :]
+  r4init = hcat(sol(xtau)...)[1:3, :]
+  v4init = hcat(sol(xtau)...)[4:6, :]
+  m4init = hcat(sol(xtau)...)[7, :]
 
   #
   # Variables
@@ -312,6 +304,20 @@ function delta3()
   @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4s)
 
   #
+  # Endpoint variable slices
+  #
+
+  x1i = vcat(r1[1,:], v1[1,:], m1[1])
+  x2i = vcat(r2[1,:], v2[1,:], m2[1])
+  x3i = vcat(r3[1,:], v3[1,:], m3[1])
+  x4i = vcat(r4[1,:], v4[1,:], m4[1])
+
+  x1f = vcat(r1[N,:], v1[N,:], m1[N])
+  x2f = vcat(r2[N,:], v2[N,:], m2[N])
+  x3f = vcat(r3[N,:], v3[N,:], m3[N])
+  x4f = vcat(r4[N,:], v4[N,:], m4[N])
+
+  #
   # Collocated variable slices
   #
 
@@ -323,18 +329,22 @@ function delta3()
   @expression(model, r1c[i=1:K,j=1:3], r1[i+offset,j])
   @expression(model, v1c[i=1:K,j=1:3], v1[i+offset,j])
   @expression(model, m1c[i=1:K], m1[i+offset])
+  x1c = hcat(r1c, v1c, m1c)
 
   @expression(model, r2c[i=1:K,j=1:3], r2[i+offset,j])
   @expression(model, v2c[i=1:K,j=1:3], v2[i+offset,j])
   @expression(model, m2c[i=1:K], m2[i+offset])
+  x2c = hcat(r2c, v2c, m2c)
 
   @expression(model, r3c[i=1:K,j=1:3], r3[i+offset,j])
   @expression(model, v3c[i=1:K,j=1:3], v3[i+offset,j])
   @expression(model, m3c[i=1:K], m3[i+offset])
+  x3c = hcat(r3c, v3c, m3c)
 
   @expression(model, r4c[i=1:K,j=1:3], r4[i+offset,j])
   @expression(model, v4c[i=1:K,j=1:3], v4[i+offset,j])
   @expression(model, m4c[i=1:K], m4[i+offset])
+  x4c = hcat(r4c, v4c, m4c)
 
   #
   # Polynomial variable slices (FIXME: is this the right term?)
@@ -387,6 +397,11 @@ function delta3()
   D3 = 2.0 / (tf3 - ti3) * D
   D4 = 2.0 / (tf4 - ti4) * D
 
+  A1 = (tf1 - ti1) / 2.0 * A
+  A2 = (tf2 - ti2) / 2.0 * A
+  A3 = (tf3 - ti3) / 2.0 * A
+  A4 = (tf4 - ti4) / 2.0 * A
+
   w1 = w * (tf1 - ti1) ./ 2.0
   w2 = w * (tf2 - ti2) ./ 2.0
   w3 = w * (tf3 - ti3) ./ 2.0
@@ -407,13 +422,13 @@ function delta3()
             -mdot1s * ones(K),
            )
 
-  @constraint(model, D1 * x1p == F1)
-
-  if method == "LG"
-      x1i = vcat(r1[1,:], v1[1,:], m1[1])
-      x1f = vcat(r1[N,:], v1[N,:], m1[N])
-
-      @constraint(model, x1f == x1i + F1' * w1)
+  if integral
+      @constraint(model, x1c == x1i' .+ A1 * F1)
+  else
+      @constraint(model, D1 * x1p == F1)
+      if method == "LG"
+        @constraint(model, x1f == x1i + F1' * w1)
+      end
   end
 
   # Stage 2
@@ -431,14 +446,15 @@ function delta3()
             -mdot2s * ones(K),
            )
 
-  @constraint(model, D2 * x2p == F2)
-
-  if method == "LG"
-      x2i = vcat(r2[1,:], v2[1,:], m2[1])
-      x2f = vcat(r2[N,:], v2[N,:], m2[N])
-
-      @constraint(model, x2f == x2i + F2' * w2)
+  if integral
+      @constraint(model, x2c == x2i' .+ A2 * F2)
+  else
+      @constraint(model, D2 * x2p == F2)
+      if method == "LG"
+          @constraint(model, x2f == x2i + F2' * w2)
+      end
   end
+
 
   # Stage 3
 
@@ -455,13 +471,14 @@ function delta3()
             -mdot3s * ones(K),
            )
 
-  @constraint(model, D3 * x3p == F3)
+  if integral
+      @constraint(model, x3c == x3i' .+ A3 * F3)
+  else
+      @constraint(model, D3 * x3p == F3)
 
-  if method == "LG"
-      x3i = vcat(r3[1,:], v3[1,:], m3[1])
-      x3f = vcat(r3[N,:], v3[N,:], m3[N])
-
-      @constraint(model, x3f == x3i + F3' * w3)
+      if method == "LG"
+          @constraint(model, x3f == x3i + F3' * w3)
+      end
   end
 
   # Stage 4
@@ -479,13 +496,14 @@ function delta3()
             -mdot4s * ones(K),
            )
 
-  @constraint(model, D4 * x4p == F4)
+  if integral
+      @constraint(model, x4c == x4i' .+ A4 * F4)
+  else
+      @constraint(model, D4 * x4p == F4)
 
-  if method == "LG"
-      x4i = vcat(r4[1,:], v4[1,:], m4[1])
-      x4f = vcat(r4[N,:], v4[N,:], m4[N])
-
-      @constraint(model, x4f == x4i + F4' * w4)
+      if method == "LG"
+          @constraint(model, x4f == x4i + F4' * w4)
+      end
   end
 
   #
@@ -617,17 +635,10 @@ function delta3()
   r3 = value.(r3) * r_scale
   r4 = value.(r4) * r_scale
 
-  if (method == "LGR")
-    tau = [-1; tau]
-  end
-  if (method == "LG")
-    tau = [-1; tau; 1]
-  end
-
-  t1 = (tau * (tf1 - ti1) ./ 2.0 .+ (tf1 + ti1) / 2.0 ) * t_scale
-  t2 = (tau * (tf2 - ti2) ./ 2.0 .+ (tf2 + ti2) / 2.0 ) * t_scale
-  t3 = (tau * (tf3 - ti3) ./ 2.0 .+ (tf3 + ti3) / 2.0 ) * t_scale
-  t4 = (tau * (tf4 - ti4) ./ 2.0 .+ (tf4 + ti4) / 2.0 ) * t_scale
+  t1 = (xtau * (tf1 - ti1) ./ 2.0 .+ (tf1 + ti1) / 2.0 ) * t_scale
+  t2 = (xtau * (tf2 - ti2) ./ 2.0 .+ (tf2 + ti2) / 2.0 ) * t_scale
+  t3 = (xtau * (tf3 - ti3) ./ 2.0 .+ (tf3 + ti3) / 2.0 ) * t_scale
+  t4 = (xtau * (tf4 - ti4) ./ 2.0 .+ (tf4 + ti4) / 2.0 ) * t_scale
 
   r = [r1; r2; r3; r4]
   v = [v1; v2; v3; v4]
