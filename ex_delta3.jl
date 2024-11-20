@@ -1,5 +1,16 @@
+
+# Benson, D. (2005). A Gauss pseudospectral transcription for optimal control
+# (Doctoral dissertation, Massachusetts Institute of Technology).
+#
+# Betts, J. T. (2010). Practical methods for optimal control and estimation using
+# nonlinear programming. Society for Industrial and Applied Mathematics.
+#
+# Patterson, M. A., & Rao, A. V. (2014). GPOPS-II: A MATLAB software for solving
+# multiple-phase optimal control problems using hp-adaptive Gaussian quadrature
+# collocation methods and sparse nonlinear programming. ACM Transactions on
+# Mathematical Software (TOMS), 41(1), 1-37.
+
 # TODO:
-#  - add atmosphere
 #  - go back to the bad terminal conditions
 #  - polynomial interpolation of results
 #  - integral formulation
@@ -14,11 +25,12 @@ import Ipopt
 using SatelliteToolboxBase
 import Plots
 using LinearAlgebra
+using OrdinaryDiffEq
 
 include("psmethod.jl")
 
 const method = "LGR"
-const N = 35
+const N = 6
 
 #
 # Earth
@@ -29,7 +41,6 @@ const r🜨   = 6378145       # m
 const ω🜨   = 7.29211585e-5 # rad/s
 const rho0 = 1.225         # kg/m³
 const H0   = 7200          # m
-
 
 #
 # initial conditions
@@ -82,12 +93,8 @@ const payloadMass    = 4164 # kg
 const Ω = ω🜨 * [0 -1 0; 1 0 0; 0 0 0]
 const lati = lat*π/180
 const lngi = lng*π/180
-#const r1i = [ 5605.2 0 3043.4 ]' * 1000
-#const v1i = [ 0 0.4076 0 ]' * 1000
 const r1i = r🜨 * [ cos(lati)*cos(lngi),cos(lati)*sin(lngi),sin(lati) ]
-const v1i = Ω * r1i  # FIXME: check if this is computed correctly if the numbers don't come out
-display(r1i)
-display(v1i)
+const v1i = Ω * r1i
 const m1i = payloadMass + secondWetMass + firstWetMass + 9 * srbWetMass
 const m1f = m1i - (firstMdot+6*srbMdot) * srbBurnTime
 const m2i = m1i - firstMdot * srbBurnTime - 6 * srbWetMass
@@ -180,41 +187,127 @@ ef = cross(vf, hf) - rf / norm(rf)
 
 function delta3()
   model = Model(Ipopt.Optimizer)
+  set_optimizer_attribute(model, "print_level", 5)
+  set_optimizer_attribute(model, "print_user_options", "yes")
   set_optimizer_attribute(model, "max_iter", 2000)
   set_optimizer_attribute(model, "tol", 1e-15)
-  #set_attribute(model, "print_level", 8)
+  #set_optimizer_attribute(model, "mumps_permuting_scaling", 7)
+  #set_optimizer_attribute(model, "mumps_scaling", 8)
+  #set_optimizer_attribute(model, "nlp_scaling_method", "none")
 
   tau, w, D, K, P = psmethod(method, N)
+
+  #
+  # Initial Guess Generation
+  #
+  # [ Based on Benson(2005) but launch with fixed inertial heading 45 degrees up and due east ]
+  #
+
+  # need all the noncollated points for the guess
+  odetau = tau
+  if method == "LGR"
+      odetau = [ -1; odetau ]
+  end
+  if method == "LG"
+      odetau = [ -1; odetau; 1 ]
+  end
+
+  # inertial heading
+  elev = deg2rad(45)
+  az = deg2rad(90)
+  u_enu = [ cos(elev)*sin(az); cos(elev)*cos(az); sin(elev) ]
+  R_toecef = [
+              -sin(lngi) -sin(lati)*cos(lngi) cos(lati)*cos(lngi);
+              cos(lngi)  -sin(lati)*sin(lngi) cos(lati)*sin(lngi);
+              0          cos(lati)            sin(lati)
+             ];
+  u_ecef = R_toecef * u_enu
+
+  # simplified vacuum rocket model
+  function rocket_stage!(dx, x, p, t)
+    u = p[1:3]; T = p[4]; mdot = p[5]; dt = p[6]
+    r = x[1:3]; v = x[4:6]; m = x[7]
+
+    r_norm = norm(r)
+    dx[1:3] = v
+    dx[4:6] = -r/r_norm^3 + T/m * u
+    dx[7] = -mdot
+    dx .= dx * dt / 2
+  end
+
+  # stage 1
+  x0 = [ r1is; v1is; m1is ]
+  p = [ u_ecef; T1s; mdot1s; dt1s ]
+
+  prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
+  sol = solve(prob, Tsit5(), saveat=odetau)
+
+  r1init = hcat(sol(odetau)...)[1:3, :]
+  v1init = hcat(sol(odetau)...)[4:6, :]
+  m1init = hcat(sol(odetau)...)[7, :]
+
+  # stage 2
+  x0 = [ r1init[:,end]; v1init[:,end]; m2is ]
+  p = [ u_ecef; T2s; mdot2s; dt2s ]
+
+  prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
+  sol = solve(prob, Tsit5(), saveat=odetau)
+
+  r2init = hcat(sol(odetau)...)[1:3, :]
+  v2init = hcat(sol(odetau)...)[4:6, :]
+  m2init = hcat(sol(odetau)...)[7, :]
+
+  # stage 3
+  x0 = [ r2init[:,end]; v2init[:,end]; m3is ]
+  p = [ u_ecef; T3s; mdot3s; dt3s ]
+
+  prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
+  sol = solve(prob, Tsit5(), saveat=odetau)
+
+  r3init = hcat(sol(odetau)...)[1:3, :]
+  v3init = hcat(sol(odetau)...)[4:6, :]
+  m3init = hcat(sol(odetau)...)[7, :]
+
+  # stage 4
+  x0 = [ r3init[:,end]; v3init[:,end]; m4is ]
+  p = [ u_ecef; T4s; mdot4s; dt4s ]
+
+  prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
+  sol = solve(prob, Tsit5(), saveat=odetau)
+
+  r4init = hcat(sol(odetau)...)[1:3, :]
+  v4init = hcat(sol(odetau)...)[4:6, :]
+  m4init = hcat(sol(odetau)...)[7, :]
 
   #
   # Variables
   #
 
-  @variable(model, rmins <= r1[i=1:N,j=1:3] <= rmaxs, start=r1is[j])
-  @variable(model, vmaxs <= v1[i=1:N,j=1:3] <= vmaxs, start=v1is[j])
-  @variable(model, m1fs <= m1[1:N] <= m1is, start=m1is)
-  @variable(model, umin <= u1[i=1:K,j=1:3] <= umax, start=v1is[j]/v1isnorm)
+  @variable(model, rmins <= r1[i=1:N,j=1:3] <= rmaxs, start=r1init[j,i])
+  @variable(model, vmaxs <= v1[i=1:N,j=1:3] <= vmaxs, start=v1init[j,i])
+  @variable(model, m1fs <= m1[i=1:N] <= m1is, start=m1init[i])
+  @variable(model, umin <= u1[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti1, start=0)
   @variable(model, tf1, start=dt1s)
 
-  @variable(model, rmins <= r2[i=1:N,j=1:3] <= rmaxs, start=r1is[j])
-  @variable(model, vmins <= v2[i=1:N,j=1:3] <= vmaxs, start=v1is[j])
-  @variable(model, m2fs <= m2[1:N] <= m2is, start=m2is)
-  @variable(model, umin <= u2[i=1:K,j=1:3] <= umax, start=v1is[j]/v1isnorm)
+  @variable(model, rmins <= r2[i=1:N,j=1:3] <= rmaxs, start=r2init[j,i])
+  @variable(model, vmins <= v2[i=1:N,j=1:3] <= vmaxs, start=v2init[j,i])
+  @variable(model, m2fs <= m2[i=1:N] <= m2is, start=m2init[i])
+  @variable(model, umin <= u2[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti2, start=dt1s)
   @variable(model, tf2, start=dt1s+dt2s)
 
-  @variable(model, rmins <= r3[i=1:N,j=1:3] <= rmaxs, start=r1is[j])
-  @variable(model, vmins <= v3[i=1:N,j=1:3] <= vmaxs, start=v1is[j])
-  @variable(model, m3fs <= m3[1:N] <= m3is, start=m3is)
-  @variable(model, umin <= u3[i=1:K,j=1:3] <= umax, start=v1is[j]/v1isnorm)
+  @variable(model, rmins <= r3[i=1:N,j=1:3] <= rmaxs, start=r3init[j,i])
+  @variable(model, vmins <= v3[i=1:N,j=1:3] <= vmaxs, start=v3init[j,i])
+  @variable(model, m3fs <= m3[i=1:N] <= m3is, start=m3init[i])
+  @variable(model, umin <= u3[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti3, start=dt1s+dt2s)
   @variable(model, tf3, start=dt1s+dt2s+dt3s)
 
-  @variable(model, rmins <= r4[i=1:N,j=1:3] <= rmaxs, start=r1is[j])
-  @variable(model, vmins <= v4[i=1:N,j=1:3] <= vmaxs, start=v1is[j])
-  @variable(model, m4fs <= m4[1:N] <= m4is, start=m4is)
-  @variable(model, umin <= u4[i=1:K,j=1:3] <= umax, start=v1is[j]/v1isnorm)
+  @variable(model, rmins <= r4[i=1:N,j=1:3] <= rmaxs, start=r4init[j,i])
+  @variable(model, vmins <= v4[i=1:N,j=1:3] <= vmaxs, start=v4init[j,i])
+  @variable(model, m4fs <= m4[i=1:N] <= m4is, start=m4init[i])
+  @variable(model, umin <= u4[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti4, start=dt1s+dt2s+dt3s)
   @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4s)
 
@@ -475,9 +568,6 @@ function delta3()
   #
   # Display output
   #
-
-  display(value.([r1; r2; r3; r4]))
-  display(value.([v1; v2; v3; v4]))
 
   display(value(tf1 - ti1) * t_scale)
   display(value(tf2 - ti2) * t_scale)
