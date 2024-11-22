@@ -28,10 +28,11 @@ using LinearAlgebra
 using OrdinaryDiffEq
 
 include("psmethod.jl")
+include("rv2oe.jl")
 
 const method = "LGR"
 const integral = true
-const N = 6
+const N = 7
 
 #
 # Earth
@@ -116,7 +117,7 @@ const T1 = firstThrust + 6 * srbThrust
 const T2 = firstThrust + 3 * srbThrust
 const T3 = firstThrust
 const T4 = secondThrust
-const rmax = Inf # 2*r🜨 # FIXME: why do these bounds break the problem?
+const rmax = 4*r🜨 # 2*r🜨 # FIXME: why do these bounds break the problem?
 const vmax = Inf # 10000 # FIXME: why do these bounds break the problem?
 const umax = 10
 const rmin = -rmax
@@ -174,17 +175,8 @@ const rho0s = rho0 / d_scale
 const H0s = H0 / r_scale
 const Arefs = Aref / area_scale
 const Ωs = Ω * t_scale
+const smafs = smaf / r_scale
 
-#
-# better terminal conditions
-#
-
-oe = KeplerianElements(0, smaf, eccf, incf, lanf, argpf, 0)
-rf, vf = kepler_to_rv(oe)
-rf = rf / r_scale
-vf = vf / v_scale
-hf = cross(rf, vf)
-ef = cross(vf, hf) - rf / norm(rf)
 
 function delta3()
   model = Model(Ipopt.Optimizer)
@@ -262,7 +254,7 @@ function delta3()
 
   # stage 4
   x0 = [ r3init[:,end]; v3init[:,end]; m4is ]
-  p = [ u_ecef; T4s; mdot4s; dt4s ]
+  p = [ u_ecef; T4s; mdot4s; dt4s / 4 ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
   sol = solve(prob, Tsit5(), saveat=xtau)
@@ -301,7 +293,7 @@ function delta3()
   @variable(model, m4fs <= m4[i=1:N] <= m4is, start=m4init[i])
   @variable(model, umin <= u4[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti4, start=dt1s+dt2s+dt3s)
-  @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4s)
+  @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4s/4)
 
   #
   # Endpoint variable slices
@@ -565,11 +557,11 @@ function delta3()
   # Terminal constraints
   #
 
-  @expression(model, h4f, cross(r4[N,1:3], v4[N,1:3]))
-  @constraint(model, h4f == hf)
-  @expression(model, r4fnorm, sqrt(sum(r^2 for r in r4[N,:])))
-  @expression(model, e4f, cross(v4[N,1:3], h4f) - r4[N,1:3] ./ r4fnorm)
-  @constraint(model, e4f == ef)
+  # XXX: All the references for this problem use these highly nonlinear terminal conditions, so it is
+  # reproduced faithfully here.  A better choice would be to just use the specific orbital angular
+  # momentum and the eccentricity vector.
+
+  @constraint(model, [ smafs eccf incf lanf argpf ] == rv2oe(1.0, r4[N,1:3], v4[N,1:3]))
 
   #
   # Objective
@@ -607,9 +599,23 @@ function delta3()
   rf = value.(r4[N,:]) * r_scale
   vf = value.(v4[N,:]) * v_scale
 
-  sv = OrbitStateVector(0, rf, vf)
-  display(sv)
-  display(sv_to_kepler(sv))
+  oe = rv2oe(µ🜨, rf, vf)
+
+  sma = oe[1]
+  ecc = oe[2]
+  inc = oe[3]
+  lan = oe[4]
+  argp = oe[5]
+  #nu = oe[6]
+
+  display(rf)
+  display(vf)
+  display(sma)
+  display(ecc)
+  display(rad2deg(inc))
+  display(rad2deg(mod2pi(lan)))
+  display(rad2deg(mod2pi(argp)))
+  #display(rad2deg(mod2pi(nu)))
 
   ti1 = value(ti1)
   tf1 = value(tf1)
