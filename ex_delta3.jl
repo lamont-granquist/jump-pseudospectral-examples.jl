@@ -32,7 +32,7 @@ include("rv2oe.jl")
 
 const method = "LGR"
 const integral = true
-const N = 7
+const N = 8
 
 #
 # Earth
@@ -117,8 +117,8 @@ const T1 = firstThrust + 6 * srbThrust
 const T2 = firstThrust + 3 * srbThrust
 const T3 = firstThrust
 const T4 = secondThrust
-const rmax = 4*r🜨 # 2*r🜨 # FIXME: why do these bounds break the problem?
-const vmax = Inf # 10000 # FIXME: why do these bounds break the problem?
+const rmax = 2*r🜨
+const vmax = 10000
 const umax = 10
 const rmin = -rmax
 const vmin = -vmax
@@ -253,8 +253,12 @@ function delta3()
   m3init = hcat(sol(xtau)...)[7, :]
 
   # stage 4
+
+  # XXX: This needs to be short enough to avoid terminal hyperbolic initialization
+  #      due to numerical issues with the terminal conditions
+  dt4guess = dt4s / 10
   x0 = [ r3init[:,end]; v3init[:,end]; m4is ]
-  p = [ u_ecef; T4s; mdot4s; dt4s / 4 ]
+  p = [ u_ecef; T4s; mdot4s; dt4guess ]
 
   prob = ODEProblem(rocket_stage!, x0, (-1.0, 1.0), p)
   sol = solve(prob, Tsit5(), saveat=xtau)
@@ -268,7 +272,7 @@ function delta3()
   #
 
   @variable(model, rmins <= r1[i=1:N,j=1:3] <= rmaxs, start=r1init[j,i])
-  @variable(model, vmaxs <= v1[i=1:N,j=1:3] <= vmaxs, start=v1init[j,i])
+  @variable(model, vmins <= v1[i=1:N,j=1:3] <= vmaxs, start=v1init[j,i])
   @variable(model, m1fs <= m1[i=1:N] <= m1is, start=m1init[i])
   @variable(model, umin <= u1[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti1, start=0)
@@ -293,7 +297,7 @@ function delta3()
   @variable(model, m4fs <= m4[i=1:N] <= m4is, start=m4init[i])
   @variable(model, umin <= u4[i=1:K,j=1:3] <= umax, start=u_ecef[j])
   @variable(model, ti4, start=dt1s+dt2s+dt3s)
-  @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4s/4)
+  @variable(model, tf4, start=dt1s+dt2s+dt3s+dt4guess)
 
   #
   # Endpoint variable slices
