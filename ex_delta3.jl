@@ -26,6 +26,7 @@ using SatelliteToolboxBase
 import Plots
 using LinearAlgebra
 using OrdinaryDiffEq
+using Printf
 
 include("psmethod.jl")
 include("rv2oe.jl")
@@ -565,7 +566,7 @@ function delta3()
   # reproduced faithfully here.  A better choice would be to just use the specific orbital angular
   # momentum and the eccentricity vector.
 
-  @constraint(model, [ smafs eccf incf lanf argpf ] == rv2oe(1.0, r4[N,1:3], v4[N,1:3]))
+  @constraint(model, [ smafs eccf incf lanf argpf ]' == rv2oe(1.0, r4[N,1:3], v4[N,1:3])[1:5])
 
   #
   # Objective
@@ -583,22 +584,22 @@ function delta3()
   # Display output
   #
 
-  display(value(tf1 - ti1) * t_scale)
-  display(value(tf2 - ti2) * t_scale)
-  display(value(tf3 - ti3) * t_scale)
-  display(value(tf4 - ti4) * t_scale)
+  @printf "\n"
+  @printf "first stage burntime:  %6.2f s\n" value(tf1 - ti1) * t_scale
+  @printf "second stage burntime: %6.2f s\n" value(tf2 - ti2) * t_scale
+  @printf "third stage burntime:  %6.2f s\n" value(tf3 - ti3) * t_scale
+  @printf "fourth stage burntime: %6.2f s\n" value(tf4 - ti4) * t_scale
+  @printf "\n"
 
   tbt = value(tf4 - ti1) * t_scale
   mf = value(m4[N]) * m_scale
 
-  display(tbt)
-  display(mf)
-
   tbt_betts = 924.139
   mf_betts = 7529.712412
 
-  display((tbt - tbt_betts)/tbt_betts)
-  display((mf - mf_betts)/mf_betts)
+  @printf "total burntime: %.2f s (acc: %e)\n" tbt (tbt - tbt_betts)/tbt_betts
+  @printf "delivered mass: %.2f kg (acc: %e)\n" mf (mf - mf_betts)/mf_betts
+  @printf "\n"
 
   rf = value.(r4[N,:]) * r_scale
   vf = value.(v4[N,:]) * v_scale
@@ -610,16 +611,14 @@ function delta3()
   inc = oe[3]
   lan = oe[4]
   argp = oe[5]
-  #nu = oe[6]
+  nu = oe[6]
 
-  display(rf)
-  display(vf)
-  display(sma)
-  display(ecc)
-  display(rad2deg(inc))
-  display(rad2deg(mod2pi(lan)))
-  display(rad2deg(mod2pi(argp)))
-  #display(rad2deg(mod2pi(nu)))
+  @printf "sma:  %.2f km\n" sma
+  @printf "ecc:  %4f\n" ecc
+  @printf "inc:  %6.2f°\n" rad2deg(inc)
+  @printf "lan:  %6.2f°\n" rad2deg(lan)
+  @printf "argp: %6.2f°\n" rad2deg(argp)
+  @printf "nu:   %6.2f°\n" rad2deg(nu)
 
   ti1 = value(ti1)
   tf1 = value(tf1)
