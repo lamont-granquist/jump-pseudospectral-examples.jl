@@ -11,7 +11,6 @@
 # Mathematical Software (TOMS), 41(1), 1-37.
 
 # TODO:
-#  - go back to the bad terminal conditions
 #  - polynomial interpolation of results
 #  - integral formulation
 #  - costate estimation
@@ -178,6 +177,16 @@ const Arefs = Aref / area_scale
 const Ωs = Ω * t_scale
 const smafs = smaf / r_scale
 
+#
+# better terminal conditions
+#
+
+oe = KeplerianElements(0, smaf, eccf, incf, lanf, argpf, 0)
+rf, vf = kepler_to_rv(oe)
+rf = rf / r_scale
+vf = vf / v_scale
+hf = cross(rf, vf)
+ef = cross(vf, hf) - rf / norm(rf)
 
 function delta3()
   model = Model(Ipopt.Optimizer)
@@ -562,11 +571,11 @@ function delta3()
   # Terminal constraints
   #
 
-  # XXX: All the references for this problem use these highly nonlinear terminal conditions, so it is
-  # reproduced faithfully here.  A better choice would be to just use the specific orbital angular
-  # momentum and the eccentricity vector.
-
-  @constraint(model, [ smafs eccf incf lanf argpf ]' == rv2oe(1.0, r4[N,1:3], v4[N,1:3])[1:5])
+  @expression(model, h4f, cross(r4[N,1:3], v4[N,1:3]))
+  @constraint(model, h4f == hf)
+  @expression(model, r4fnorm, sqrt(sum(r^2 for r in r4[N,:])))
+  @expression(model, e4f, cross(v4[N,1:3], h4f) - r4[N,1:3] ./ r4fnorm)
+  @constraint(model, e4f == ef)
 
   #
   # Objective
