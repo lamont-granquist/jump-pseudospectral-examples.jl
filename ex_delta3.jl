@@ -265,9 +265,7 @@ function delta3()
 
   # stage 4
 
-  # XXX: This needs to be short enough to avoid terminal hyperbolic initialization
-  #      due to numerical issues with the terminal conditions
-  dt4guess = dt4s / 10
+  dt4guess = dt4s
   x0 = [ r3init[:,end]; v3init[:,end]; m4is ]
   p = [ u_ecef; T4s; mdot4s; dt4guess ]
 
