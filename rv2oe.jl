@@ -1,44 +1,47 @@
-using JuMP
+function rv2oe(μ, r, v)
+    rmag = sqrt(sum(i^2 for i in r))         # Magnitude of position vector
+    vmag = sqrt(sum(i^2 for i in v))         # Magnitude of velocity vector
+    rhat = r ./ rmag                         # Unit vector in the direction of r
+    hv = cross(r, v)                         # Specific angular momentum vector
+    hhat = hv ./ sqrt(sum(i^2 for i in hv))  # Unit vector of angular momentum
+    eccvec = cross(v / μ, hv) - rhat         # Eccentricity vector
+    sma = 1.0 / (2.0 / rmag - vmag^2 / μ)    # Semi-major axis
+    l = sum(i^2 for i in hv) / μ             # Semi-latus rectum
 
-# This is copied from the GPOPS-II user manual, translated to Julia and then
-# modified to work with JuMP
+    # Parameters for frame transformation
+    d = 1.0 + hhat[3]
+    p = d == 0 ? 0 : hhat[1] / d
+    q = d == 0 ? 0 : -hhat[2] / d
+    const1 = 1.0 / (1.0 + p^2 + q^2)
 
-function safe_acos(x)
-    x = op_ifelse(op_strictly_less_than(x, -1), -1, x)
-    x = op_ifelse(op_strictly_greater_than(x, 1), 1, x)
-    return acos(x)
-end
+    fhat = [
+        const1 * (1.0 - p^2 + q^2),
+        const1 * 2.0 * p * q,
+        -const1 * 2.0 * p
+    ]
 
-function rv2oe(mu, rv, vv)
-    K = [0;0;1]
-    hv = cross(rv,vv)
-    nv = cross(K,hv)
-    n = sqrt(nv'*nv)
-    h2 = (hv'*hv)
-    v2 = (vv'*vv)
-    r = sqrt(rv'*rv)
-    ev = 1/mu *( (v2-mu/r)*rv - (rv'*vv)*vv )
-    p = h2/mu
-    e = sqrt(ev'*ev)
-    a = p/(1-e*e)
-    i = safe_acos(hv[3]/sqrt(h2))
-    Om = safe_acos(nv[1]/n)
-    Om = op_ifelse(
-              op_strictly_less_than( nv[2], 0-eps()),
-              2*pi-Om,
-              Om
-             )
-    om = safe_acos(nv'*ev/n/e)
-    om = op_ifelse(
-                   op_strictly_less_than( ev[3], 0),
-                   2*pi-om,
-                   om
-                  )
-    nu = safe_acos(ev'*rv/e/r)
-    nu = op_ifelse(
-                    op_strictly_less_than(rv'*vv, 0),
-                    2*pi-nu,
-                    nu
-                   )
-    return [a e i Om om nu]
+    ghat = [
+        const1 * 2.0 * p * q,
+        const1 * (1.0 + p^2 - q^2),
+        const1 * 2.0 * q
+    ]
+
+    # Calculate Keplerian elements
+    h = dot(eccvec, ghat)
+    xk = dot(eccvec, fhat)
+    x1 = dot(r, fhat)
+    y1 = dot(r, ghat)
+    xlambdot = atan(y1, x1)                       # True longitude
+    ecc = sqrt(h^2 + xk^2)                        # Eccentricity
+    inc = 2.0 * atan(sqrt(p^2 + q^2))             # Inclination
+    lan = inc > eps() ? atan(p, q) : 0.0          # Longitude of ascending node
+    argp = ecc > eps() ? atan(h, xk) - lan : 0.0  # Argument of periapsis
+    nu = xlambdot - lan - argp                    # True anomaly
+
+    # Normalize angles to [0, 2π]
+    lan = mod2pi(lan)
+    argp = mod2pi(argp)
+    nu = mod2pi(nu)
+
+    return sma, ecc, inc, lan, argp, nu, l
 end
