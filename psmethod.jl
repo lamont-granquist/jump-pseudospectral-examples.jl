@@ -18,13 +18,11 @@ function psmethod(method, N)
         tau, w = gaussradau(K)
         tau = reverse(-tau)
         w = reverse(w)
-        tau = [-1; tau]
-        D = dmatrix(tau)
+        xtau = [-1; tau]
+        D = dmatrix(xtau)
         D = D[2:end, :]
-        tau = tau[2:end]
         D1N = D[:, 2:end]
         A = inv(D1N)
-        xtau = [ -1; tau ]
     elseif method == "LG"
         P = N-1
         K = N-2

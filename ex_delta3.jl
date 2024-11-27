@@ -11,11 +11,11 @@
 # Mathematical Software (TOMS), 41(1), 1-37.
 
 # TODO:
-#  - polynomial interpolation of results
 #  - integral formulation
 #  - costate estimation
 #  - endpoint control estimation
 #  - chebyshev at gauss and radau points?
+#  - chebyshev-gauss from Tang(2015)
 #  - convexification
 #  - birkhoff PS methods?
 
@@ -29,6 +29,7 @@ using Printf
 
 include("psmethod.jl")
 include("rv2oe.jl")
+include("interp.jl")
 
 const method = "LGR"
 const integral = true
@@ -629,6 +630,32 @@ function delta3()
   @printf "argp: %6.2f°\n" rad2deg(argp)
   @printf "nu:   %6.2f°\n" rad2deg(nu)
 
+  #
+  # Descale and interpolate the variables
+  #
+
+  range = LinRange(-1,1,20)
+  L = lagrange_basis(xtau, range)
+
+  r1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r1))) * r_scale
+  r2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r2))) * r_scale
+  r3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r3))) * r_scale
+  r4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r4))) * r_scale
+
+  v1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v1))) * v_scale
+  v2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v2))) * v_scale
+  v3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v3))) * v_scale
+  v4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v4))) * v_scale
+
+  m1 = lagrange_interpolation(L, value.(m1)) * m_scale
+  m2 = lagrange_interpolation(L, value.(m2)) * m_scale
+  m3 = lagrange_interpolation(L, value.(m3)) * m_scale
+  m4 = lagrange_interpolation(L, value.(m4)) * m_scale
+
+  #
+  # Construct ranges of real times at the interpolation points
+  #
+
   ti1 = value(ti1)
   tf1 = value(tf1)
   ti2 = value(ti2)
@@ -638,25 +665,14 @@ function delta3()
   ti4 = value(ti4)
   tf4 = value(tf4)
 
-  m1 = value.(m1) * m_scale
-  m2 = value.(m2) * m_scale
-  m3 = value.(m3) * m_scale
-  m4 = value.(m4) * m_scale
+  t1 = (range * (tf1 - ti1) ./ 2.0 .+ (tf1 + ti1) / 2.0 ) * t_scale
+  t2 = (range * (tf2 - ti2) ./ 2.0 .+ (tf2 + ti2) / 2.0 ) * t_scale
+  t3 = (range * (tf3 - ti3) ./ 2.0 .+ (tf3 + ti3) / 2.0 ) * t_scale
+  t4 = (range * (tf4 - ti4) ./ 2.0 .+ (tf4 + ti4) / 2.0 ) * t_scale
 
-  v1 = value.(v1) * v_scale
-  v2 = value.(v2) * v_scale
-  v3 = value.(v3) * v_scale
-  v4 = value.(v4) * v_scale
-
-  r1 = value.(r1) * r_scale
-  r2 = value.(r2) * r_scale
-  r3 = value.(r3) * r_scale
-  r4 = value.(r4) * r_scale
-
-  t1 = (xtau * (tf1 - ti1) ./ 2.0 .+ (tf1 + ti1) / 2.0 ) * t_scale
-  t2 = (xtau * (tf2 - ti2) ./ 2.0 .+ (tf2 + ti2) / 2.0 ) * t_scale
-  t3 = (xtau * (tf3 - ti3) ./ 2.0 .+ (tf3 + ti3) / 2.0 ) * t_scale
-  t4 = (xtau * (tf4 - ti4) ./ 2.0 .+ (tf4 + ti4) / 2.0 ) * t_scale
+  #
+  # Combine the phases and determine the norms of the 3-vectors
+  #
 
   r = [r1; r2; r3; r4]
   v = [v1; v2; v3; v4]
@@ -665,6 +681,10 @@ function delta3()
 
   rnorm = norm.(eachrow(r))
   vnorm = norm.(eachrow(v))
+
+  #
+  # Do some plotting of interpolated results
+  #
 
   p1 = Plots.plot(
                  t,
