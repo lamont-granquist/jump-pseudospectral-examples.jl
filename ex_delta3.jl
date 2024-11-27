@@ -199,7 +199,7 @@ function delta3()
   #set_optimizer_attribute(model, "mumps_scaling", 8)
   #set_optimizer_attribute(model, "nlp_scaling_method", "none")
 
-  tau, xtau, w, D, A, K, P = psmethod(method, N)
+  tau, ptau, xtau, w, D, A, K, P = psmethod(method, N)
 
   #
   # Initial Guess Generation
@@ -633,22 +633,22 @@ function delta3()
   #
 
   range = LinRange(-1,1,20)
-  L = lagrange_basis(xtau, range)
+  L = lagrange_basis(ptau, range)
 
-  r1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r1))) * r_scale
-  r2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r2))) * r_scale
-  r3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r3))) * r_scale
-  r4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r4))) * r_scale
+  r1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r1p))) * r_scale
+  r2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r2p))) * r_scale
+  r3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r3p))) * r_scale
+  r4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(r4p))) * r_scale
 
-  v1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v1))) * v_scale
-  v2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v2))) * v_scale
-  v3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v3))) * v_scale
-  v4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v4))) * v_scale
+  v1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v1p))) * v_scale
+  v2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v2p))) * v_scale
+  v3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v3p))) * v_scale
+  v4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(v4p))) * v_scale
 
-  m1 = lagrange_interpolation(L, value.(m1)) * m_scale
-  m2 = lagrange_interpolation(L, value.(m2)) * m_scale
-  m3 = lagrange_interpolation(L, value.(m3)) * m_scale
-  m4 = lagrange_interpolation(L, value.(m4)) * m_scale
+  m1 = lagrange_interpolation(L, value.(m1p)) * m_scale
+  m2 = lagrange_interpolation(L, value.(m2p)) * m_scale
+  m3 = lagrange_interpolation(L, value.(m3p)) * m_scale
+  m4 = lagrange_interpolation(L, value.(m4p)) * m_scale
 
   #
   # Construct ranges of real times at the interpolation points
