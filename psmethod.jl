@@ -33,6 +33,8 @@ function psmethod(method, N)
         tau = tau[2:end]
         xtau = [ -1; tau; 1 ]
         ptau = [ -1; tau ]
+        D1N = D[:, 2:end]
+        A = inv(D1N)
     elseif method == "CGL"
         P = N
         K = N
@@ -40,7 +42,7 @@ function psmethod(method, N)
         μ = FastTransforms.chebyshevmoments1(Float64, N)
         w = clenshawcurtisweights(μ)
         D = dmatrix(tau)
-        xtau = ptau = xau
+        xtau = ptau = tau
     else
         error("invalid pseudospectral method")
     end

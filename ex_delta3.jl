@@ -11,11 +11,17 @@
 # Mathematical Software (TOMS), 41(1), 1-37.
 
 # TODO:
-#  - integral formulation
-#  - costate estimation
-#  - endpoint control estimation
+#  - integral formulation for LG/LGL
+#  - costate estimation for LG/LGL/LGR
+#  - validate costate with indirect shooting method
+#  - endpoint control estimation - Huntington(2008)
 #  - chebyshev at gauss and radau points?
-#  - chebyshev-gauss from Tang(2015)
+#    - chebyshev-lobatto costate - Gong(2010)
+#    - chebyshev-gauss - Tang(2015)
+#    - hermite-lobatto - Liu(2014)
+#    - better legendre-lobatto -Garrido(2023)
+#  - generate control law - Tian(2011)
+#  - mesh refinement - Liu(2015)
 #  - convexification
 #  - birkhoff PS methods?
 
@@ -30,10 +36,19 @@ using Printf
 include("psmethod.jl")
 include("rv2oe.jl")
 include("interp.jl")
+include("solve_and_print_solution.jl")
 
+# CGL, LGL, LGR, LG
 const method = "LGR"
-const integral = true
-const N = 8
+
+# supported by LGR and LG methods
+const integral = false
+
+# supported by LGR differentiation method
+const costate = true
+
+# number of grid points
+const N = 10
 
 #
 # Earth
@@ -194,7 +209,7 @@ function delta3()
   set_optimizer_attribute(model, "print_level", 5)
   set_optimizer_attribute(model, "print_user_options", "yes")
   set_optimizer_attribute(model, "max_iter", 2000)
-  set_optimizer_attribute(model, "tol", 1e-15)
+  set_optimizer_attribute(model, "tol", 1e-12)
   #set_optimizer_attribute(model, "mumps_permuting_scaling", 7)
   #set_optimizer_attribute(model, "mumps_scaling", 8)
   #set_optimizer_attribute(model, "nlp_scaling_method", "none")
@@ -429,8 +444,12 @@ function delta3()
 
   if integral
       @constraint(model, x1c == x1i' .+ A1 * F1)
+
+      if method == "LG"
+          @constraint(model, x1f == x1i + F1' * w1)
+      end
   else
-      @constraint(model, D1 * x1p == F1)
+      @constraint(model, dyn1, D1 * x1p == F1)
       if method == "LG"
         @constraint(model, x1f == x1i + F1' * w1)
       end
@@ -453,8 +472,12 @@ function delta3()
 
   if integral
       @constraint(model, x2c == x2i' .+ A2 * F2)
+
+      if method == "LG"
+          @constraint(model, x2f == x2i + F2' * w2)
+      end
   else
-      @constraint(model, D2 * x2p == F2)
+      @constraint(model, dyn2, D2 * x2p == F2)
       if method == "LG"
           @constraint(model, x2f == x2i + F2' * w2)
       end
@@ -478,8 +501,12 @@ function delta3()
 
   if integral
       @constraint(model, x3c == x3i' .+ A3 * F3)
+
+      if method == "LG"
+          @constraint(model, x3f == x3i + F3' * w3)
+      end
   else
-      @constraint(model, D3 * x3p == F3)
+      @constraint(model, dyn3, D3 * x3p == F3)
 
       if method == "LG"
           @constraint(model, x3f == x3i + F3' * w3)
@@ -503,8 +530,12 @@ function delta3()
 
   if integral
       @constraint(model, x4c == x4i' .+ A4 * F4)
+
+      if method == "LG"
+          @constraint(model, x4f == x4i + F4' * w4)
+      end
   else
-      @constraint(model, D4 * x4p == F4)
+      @constraint(model, dyn4, D4 * x4p == F4)
 
       if method == "LG"
           @constraint(model, x4f == x4i + F4' * w4)
@@ -586,7 +617,7 @@ function delta3()
   # Solve the problem
   #
 
-  optimize!(model)
+  solve_and_print_solution(model)
 
   #
   # Display output
@@ -650,6 +681,13 @@ function delta3()
   m3 = lagrange_interpolation(L, value.(m3p)) * m_scale
   m4 = lagrange_interpolation(L, value.(m4p)) * m_scale
 
+  L = lagrange_basis(tau, range)
+
+  u1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(u1)))
+  u2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(u2)))
+  u3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(u3)))
+  u4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(u4)))
+
   #
   # Construct ranges of real times at the interpolation points
   #
@@ -676,9 +714,59 @@ function delta3()
   v = [v1; v2; v3; v4]
   m = [m1; m2; m3; m4]
   t = [t1; t2; t3; t4]
+  u = [u1; u2; u3; u4]
 
   rnorm = norm.(eachrow(r))
   vnorm = norm.(eachrow(v))
+  unorm = norm.(eachrow(u))
+
+  #
+  # Pull costate estimate out of the KKT multipliers and interpolate
+  #
+
+  if !integral && costate
+      D0 = D[:, 1]
+
+      Λ1 = dual(dyn1)
+      Λ2 = dual(dyn2)
+      Λ3 = dual(dyn3)
+      Λ4 = dual(dyn4)
+
+      λ1 = vcat(
+                -D0' * Λ1,
+                Λ1 ./ w,
+               )
+      λ2 = vcat(
+                -D0' * Λ2,
+                Λ2 ./ w,
+               )
+      λ3 = vcat(
+                -D0' * Λ3,
+                Λ3 ./ w,
+               )
+      λ4 = vcat(
+                -D0' * Λ4,
+                Λ4 ./ w,
+               )
+
+      range = LinRange(-1,1,20)
+      L = lagrange_basis(ptau, range)
+
+      λ1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ1)))
+      λ2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ2)))
+      λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3)))
+      λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4)))
+
+      λ = [λ1; λ2; λ3; λ4]
+
+      # not entirely sure where the minus sign comes from here
+      λr = -λ[:,1:3]
+      λv = -λ[:,4:6]
+      λm = -λ[:,7]
+
+      λvnorm = norm.(eachrow(λv))
+      λvunit = λv ./ λvnorm
+  end
 
   #
   # Do some plotting of interpolated results
@@ -707,13 +795,29 @@ function delta3()
                 )
   p4 = Plots.plot(
                  t,
-                 vnorm,
+                 [ u[:,1] u[:,2] u[:,3] unorm ],
                  xlabel = "Time (s)",
-                 ylabel = "Velocity (m/s)",
+                 ylabel = "Control",
                  legend = false
                 )
-  display(Plots.plot(p1, p2, p3, p4, layout=(2,2), legend=false))
+  p5 = Plots.plot(
+                 t,
+                 λvnorm,
+                 xlabel = "Time (s)",
+                 ylabel = "λv Magnitude",
+                 legend = false
+                 )
+  p6 = Plots.plot(
+                 t,
+                 [ λvunit[:,1] λvunit[:,2] λvunit[:,3] ],
+                 xlabel = "Time (s)",
+                 ylabel = "λv Direction",
+                 legend = false
+                )
+
+  display(Plots.plot(p1, p2, p3, p4, p5, p6, layout=(3,2), legend=false))
   readline()
+
   @assert is_solved_and_feasible(model)
 end
 
