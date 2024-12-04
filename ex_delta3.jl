@@ -32,11 +32,9 @@ import Plots
 using LinearAlgebra
 using OrdinaryDiffEq
 using Printf
+using Glob
 
-include("psmethod.jl")
-include("rv2oe.jl")
-include("interp.jl")
-include("solve_and_print_solution.jl")
+foreach(include, glob("*.jl", "lib"))
 
 # CGL, LGL, LGR, LG
 const method = "LGR"
