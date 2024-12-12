@@ -12,7 +12,7 @@
 
 # TODO:
 #  - integral formulation for LG/LGL
-#  - costate estimation for LG/LGL/LGR
+#  - costate estimation for LG/LGL
 #  - validate costate with indirect shooting method
 #  - endpoint control estimation - Huntington(2008)
 #  - chebyshev at gauss and radau points?
@@ -22,7 +22,7 @@
 #    - better legendre-lobatto -Garrido(2023)
 #  - generate control law - Tian(2011)
 #  - mesh refinement - Liu(2015)
-#  - convexification
+#  - convexification?
 #  - birkhoff PS methods?
 
 using JuMP
@@ -33,6 +33,7 @@ using LinearAlgebra
 using OrdinaryDiffEq
 using Printf
 using Glob
+using ForwardDiff
 
 foreach(include, glob("*.jl", "lib"))
 
@@ -657,6 +658,162 @@ function delta3()
   @printf "argp: %6.2f°\n" rad2deg(argp)
   @printf "nu:   %6.2f°\n" rad2deg(nu)
 
+  if !integral && costate
+      #
+      # Setup Hamiltonian system
+      #
+
+      Hvrel(r::Vector, v::Vector) = v - Ωs * r
+      Hrho(r::Vector) = rho0s*exp(-(norm(r) - r🜨s)/H0s)
+      HD(r::Vector, v::Vector) = -0.5*Cd*Arefs*Hrho(r)*norm(Hvrel(r,v))*Hvrel(r,v)
+      H(r::Vector, v::Vector, m, λr::Vector, λv::Vector, λm, u::Vector, T, mdot) = dot(λr, v) + dot(λv, -r/norm(r)^3 + T/m * u + HD(r,v)/m) - λm * mdot
+
+      ∂H∂r(r, v, m, λr, λv, λm, u, T, mdot)  = ForwardDiff.gradient(r -> H(r, v, m, λr, λv, λm, u, T, mdot), r)
+      ∂H∂v(r, v, m, λr, λv, λm, u, T, mdot)  = ForwardDiff.gradient(v -> H(r, v, m, λr, λv, λm, u, T, mdot), v)
+      ∂H∂m(r, v, m, λr, λv, λm, u, T, mdot)  = ForwardDiff.derivative(m -> H(r, v, m, λr, λv, λm, u, T, mdot), m)
+      ∂H∂λr(r, v, m, λr, λv, λm, u, T, mdot) = ForwardDiff.gradient(λr -> H(r, v, m, λr, λv, λm, u, T, mdot), λr)
+      ∂H∂λv(r, v, m, λr, λv, λm, u, T, mdot) = ForwardDiff.gradient(λv -> H(r, v, m, λr, λv, λm, u, T, mdot), λv)
+      ∂H∂λm(r, v, m, λr, λv, λm, u, T, mdot) = ForwardDiff.derivative(λm -> H(r, v, m, λr, λv, λm, u, T, mdot), λm)
+
+      #
+      # Pull costate estimate out of the KKT multipliers and interpolate
+      #
+
+      D0 = D[:, 1]
+
+      Λ1 = dual(dyn1)
+      Λ2 = dual(dyn2)
+      Λ3 = dual(dyn3)
+      Λ4 = dual(dyn4)
+
+      λ1 = vcat(
+                -D0' * Λ1,
+                Λ1 ./ w,
+               )
+      λ2 = vcat(
+                -D0' * Λ2,
+                Λ2 ./ w,
+               )
+      λ3 = vcat(
+                -D0' * Λ3,
+                Λ3 ./ w,
+               )
+      λ4 = vcat(
+                -D0' * Λ4,
+                Λ4 ./ w,
+               )
+
+      range = LinRange(-1,1,20)
+      L = lagrange_basis(ptau, range)
+
+      λ1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ1)))
+      λ2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ2)))
+      λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3)))
+      λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4)))
+
+      origλm = [λ1[:,7]; λ2[:,7]; λ3[:,7]; λ4[:,7] ]
+
+      # XXX: i think the minus sign here comes from JuMP.jl dual variable conventions?
+      λ1 = -λ1
+      λ2 = -λ2
+      λ3 = -λ3
+      λ4 = -λ4
+
+      # rescale costate and make continuous
+      λ4 = λ4 ./ norm(λ4[end,4:6])
+      λ3 = λ3 ./ norm(λ3[end,4:6]) .* norm(λ4[1,4:6])
+      λ2 = λ2 ./ norm(λ2[end,4:6]) .* norm(λ3[1,4:6])
+      λ1 = λ1 ./ norm(λ1[end,4:6]) .* norm(λ2[1,4:6])
+
+      λrf = λ4[end,1:3]
+      λvf = λ4[end,4:6]
+      rf = value.(r4[end,:])
+      vf = value.(v4[end,:])
+      mf = value(m4[end])
+      uf = value.(u4[end,:])
+      λmf = ( dot(λrf, vf) + dot(λvf, -rf/norm(rf)^3 + T4s/mf * uf + HD(rf,vf)/mf) ) / mdot4s
+      display(λmf)
+      display(H(rf, vf, mf, λrf, λvf, λmf, uf, T4s, mdot4s))
+
+      # adjust mass costate (XXX: this makes it continuous and i think there should be a discontinuity)
+      #λ4[:,7] .= λ4[:,7] .- λ4[end,7] .+ λmf
+      #λ3[:,7] .= λ3[:,7] .- λ3[end,7] .+ λ4[1,7]
+      #λ2[:,7] .= λ2[:,7] .- λ2[end,7] .+ λ3[1,7]
+      #λ1[:,7] .= λ1[:,7] .- λ1[end,7] .+ λ2[1,7]
+
+      λ = [λ1; λ2; λ3; λ4]
+
+      λr = λ[:,1:3]
+      λv = λ[:,4:6]
+      λm = λ[:,7]
+
+      λvnorm = norm.(eachrow(λv))
+      λvunit = λv ./ λvnorm
+
+      @printf "final λm from PS:\n"
+      display(λ4[end,7])
+
+      #
+      # Indirect ODE shooting
+      #
+
+      function rocket_stage_with_drag_and_costate!(dx, x, p, t)
+          T = p[1]; mdot = p[2]; dt = p[3]
+          r = x[1:3]; v = x[4:6]; m = x[7]; λr = x[8:10]; λv = x[11:13]; local λm = x[14]
+
+          u = λv / norm(λv)
+
+          #@printf "---START---\n"
+          #display(λm)
+          #display(H(r, v, m, λr, λv, λm, u, T, mdot))
+          #@printf "---STOP---\n"
+
+          dx[1:3]   = ∂H∂λr(r, v, m, λr, λv, λm, u, T, mdot)
+          dx[4:6]   = ∂H∂λv(r, v, m, λr, λv, λm, u, T, mdot)
+          dx[7]     = ∂H∂λm(r, v, m, λr, λv, λm, u, T, mdot)
+          dx[8:10]  = -∂H∂r(r, v, m, λr, λv, λm, u, T, mdot)
+          dx[11:13] = -∂H∂v(r, v, m, λr, λv, λm, u, T, mdot)
+          dx[14]    = -∂H∂λm(r, v, m, λr, λv, λm, u, T, mdot)
+
+          dx .= dx * dt / 2
+      end
+
+      # stage 1
+      x0 = [ r1is; v1is; m1is; λr[1,:]; λv[1,:]; λm[1] ]
+      p = [ T1s; mdot1s; value(tf1-ti1) ]
+
+      prob = ODEProblem(rocket_stage_with_drag_and_costate!, x0, (-1.0, 1.0), p)
+      sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12)
+
+      # stage 2
+      x0 = sol(1.0); x0[7] = m2is; x0[14] = λ2[1,7]
+      p = [ T2s; mdot2s; value(tf2-ti2) ]
+
+      prob = ODEProblem(rocket_stage_with_drag_and_costate!, x0, (-1.0, 1.0), p)
+      sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12)
+
+      # stage 3
+      x0 = sol(1.0); x0[7] = m3is; x0[14] = λ3[1,7]
+      p = [ T3s; mdot3s; value(tf3-ti3) ]
+
+      prob = ODEProblem(rocket_stage_with_drag_and_costate!, x0, (-1.0, 1.0), p)
+      sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12)
+
+      # stage 4
+
+      x0 = sol(1.0); x0[7] = m4is; x0[14] = λ4[1,7]
+      p = [ T4s; mdot4s; value(tf4-ti4) ]
+
+      prob = ODEProblem(rocket_stage_with_drag_and_costate!, x0, (-1.0, 1.0), p)
+      sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12)
+
+      @printf "DONE"
+
+      display(sol(1.0))
+      display(value.(r4[N,:]))
+      display(value.(v4[N,:]))
+  end
+
   #
   # Descale and interpolate the variables
   #
@@ -718,53 +875,6 @@ function delta3()
   vnorm = norm.(eachrow(v))
   unorm = norm.(eachrow(u))
 
-  #
-  # Pull costate estimate out of the KKT multipliers and interpolate
-  #
-
-  if !integral && costate
-      D0 = D[:, 1]
-
-      Λ1 = dual(dyn1)
-      Λ2 = dual(dyn2)
-      Λ3 = dual(dyn3)
-      Λ4 = dual(dyn4)
-
-      λ1 = vcat(
-                -D0' * Λ1,
-                Λ1 ./ w,
-               )
-      λ2 = vcat(
-                -D0' * Λ2,
-                Λ2 ./ w,
-               )
-      λ3 = vcat(
-                -D0' * Λ3,
-                Λ3 ./ w,
-               )
-      λ4 = vcat(
-                -D0' * Λ4,
-                Λ4 ./ w,
-               )
-
-      range = LinRange(-1,1,20)
-      L = lagrange_basis(ptau, range)
-
-      λ1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ1)))
-      λ2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ2)))
-      λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3)))
-      λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4)))
-
-      λ = [λ1; λ2; λ3; λ4]
-
-      # not entirely sure where the minus sign comes from here
-      λr = -λ[:,1:3]
-      λv = -λ[:,4:6]
-      λm = -λ[:,7]
-
-      λvnorm = norm.(eachrow(λv))
-      λvunit = λv ./ λvnorm
-  end
 
   #
   # Do some plotting of interpolated results
@@ -812,8 +922,22 @@ function delta3()
                  ylabel = "λv Direction",
                  legend = false
                 )
+  p7 = Plots.plot(
+                 t,
+                 λm,
+                 xlabel = "Time (s)",
+                 ylabel = "λm",
+                 legend = false
+                )
+  p8 = Plots.plot(
+                 t,
+                 origλm,
+                 xlabel = "Time (s)",
+                 ylabel = "orig λm",
+                 legend = false
+                )
 
-  display(Plots.plot(p1, p2, p3, p4, p5, p6, layout=(3,2), legend=false))
+  display(Plots.plot(p1, p2, p3, p4, p5, p6, p7, p8, layout=(3,3), legend=false))
   readline()
 
   @assert is_solved_and_feasible(model)
