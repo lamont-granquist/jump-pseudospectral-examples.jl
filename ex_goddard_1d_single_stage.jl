@@ -18,7 +18,7 @@ const integral = false
 const costate = false
 
 # number of grid points
-const N = 200
+const N = 35
 
 #
 # Earth constants
@@ -141,12 +141,6 @@ function goddard()
     fix(v[1], vis, force=true)
     fix(m[1], mis, force=true)
 
-    display(his)
-    display(vis)
-    display(mis)
-    display(mfs)
-    display(c)
-
     #
     # Dynamical constraints
     #
@@ -189,6 +183,48 @@ function goddard()
     #
 
     solve_and_print_solution(model)
+
+    #
+    # determine absolute and relative errors at collocation points
+    #
+
+    tau_err, ptau_err, xtau_err, w_err, D_err, A_err, K_err, P_err = psmethod(method, N+1)
+
+    D1_err = 2.0 / tf * D_err
+    A1_err = tf / 2.0 * A_err
+    w1_err = w_err * tf ./ 2.0
+
+    L = lagrange_basis(ptau, tau_err)
+
+    hc_err = lagrange_interpolation(L, value.(hp))
+    vc_err = lagrange_interpolation(L, value.(vp))
+    mc_err = lagrange_interpolation(L, value.(mp))
+
+    xc_err = hcat(hc_err, vc_err, mc_err)
+
+    L = lagrange_basis(tau, tau_err)
+
+    T_err = lagrange_interpolation(L, value.(T))
+
+    rho_err = rho0s*exp.(-hc_err./H0s)
+    Drag_err = -0.5*Cd*Arefs*rho_err.*vc_err.^2
+    rsqr_err = (r🜨s .+ hc_err).^2
+
+    F_err = hcat(
+              vc_err,
+              -1.0 ./ rsqr_err + (T_err + Drag_err) ./ mc_err,
+              -T_err ./ c,
+             )
+
+    xc_err2 = value.(xi' .+ A1_err * F_err)
+
+    abs_err = abs.(xc_err2 .- xc_err)
+
+    rel_err = abs_err ./ (1.0.+maximum(abs.(xc_err), dims=1))
+
+    max_rel_err = maximum(rel_err)
+
+    @printf "maximum relative error: %e\n" max_rel_err
 
     #
     # Descale and interpolate the variables
