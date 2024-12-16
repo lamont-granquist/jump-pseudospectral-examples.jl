@@ -9,16 +9,16 @@ using Glob
 foreach(include, glob("*.jl", "lib"))
 
 # CGL, LGL, LGR, LG
-const method = "LGR"
+const method = "LG"
 
 # supported by LGR and LG methods
-const integral = false
+const integral = true
 
 # supported by LGR differentiation method
 const costate = false
 
 # number of grid points
-const N = 35
+const N = 50
 
 #
 # Earth constants
@@ -227,10 +227,71 @@ function goddard()
     @printf "maximum relative error: %e\n" max_rel_err
 
     #
+    # Structure Detection
+    #
+
+    nu = 0.05
+
+    T_val = value.(T)
+
+    T_norm = ( T_val .- minimum(T_val) ) ./ ( 1 + maximum(T_val) - minimum(T_val) )
+
+    midpoints = [(tau[i] + tau[i+1]) / 2 for i in 1:length(tau)-1]
+
+    function cj(tau, Sidx, j)
+        m = length(Sidx)-1
+        val = factorial(big(m))
+        for i in Sidx
+            i == j && continue
+            val /= tau[j] - tau[i]
+        end
+        return val
+    end
+
+    MMLm = []
+
+    for t in midpoints
+        sortidx = sortperm(abs.(tau .- t))
+        arry = []
+        for m in 1:6 # mu = 6
+            Sidx = sortidx[1:m+1]
+            temp = findall(x -> x > t, tau[Sidx])
+            Splusidx = sortidx[temp]
+            qm = 0
+            for j in Splusidx
+                qm += cj(tau, Sidx, j)
+            end
+            Lm = 0
+            for j in Sidx
+                Lm += cj(tau, Sidx, j) * T_norm[j]
+            end
+            Lm /= qm
+            push!(arry, Lm)
+        end
+        if all(x -> x > 0, arry)
+            push!(MMLm, minimum(arry))
+            if minimum(arry) > nu
+                v = (t * tf / 2.0 + tf / 2.0) * t_scale
+                display(value(v))
+                display(minimum(arry))
+            end
+        elseif all(x -> x < 0, arry)
+            push!(MMLm,abs(maximum(arry)))
+            if abs(maximum(arry)) > nu
+                v = (t * tf / 2.0 + tf / 2.0) * t_scale
+                display(value(v))
+                display(maximum(arry))
+            end
+        else
+            push!(MMLm, 0)
+        end
+    end
+
+    #
     # Descale and interpolate the variables
     #
 
-    range = LinRange(-1,1,20)
+    range = LinRange(-1,1,100)
     L = lagrange_basis(ptau, range)
 
     h = lagrange_interpolation(L, value.(hp)) * r_scale
@@ -280,7 +341,21 @@ function goddard()
                     ylabel = "Thrust",
                     legend = false
                    )
-    display(Plots.plot(p1, p2, p3, p4, layout=(2,2), legend=false))
+    p5 = Plots.plot(
+                    tau,
+                    T_norm,
+                    xlabel = "Tau",
+                    ylabel = "T_norm",
+                    legend = false
+                   )
+    p6 = Plots.plot(
+                    midpoints,
+                    MMLm,
+                    xlabel = "Tau",
+                    ylabel = "MMLm",
+                    legend = false
+                   )
+    display(Plots.plot(p1, p2, p3, p4, p5, p6, layout=(2,3), legend=false))
     readline()
 
     @assert is_solved_and_feasible(model)
