@@ -1,0 +1,13 @@
+# TODO:
+#  - integral for LGL
+#  - costate estimation for LG/LGL
+#  - chebyshev-lobatto costate - Gong(2010)
+#  - better legendre-lobatto - Garrido(2023)
+#  - endpoint control estimation - Huntington(2008)
+#  - chebyshev-gauss - Tang(2015)
+#  - hermite-lobatto - Liu(2014)
+#  - mesh refinement - Liu(2015)
+#  - delta3 ascent generate control law - Tian(2011)
+#  - chebyshev at radau points?
+#  - delta3 ascent convexification?
+#  - birkhoff PS methods?
