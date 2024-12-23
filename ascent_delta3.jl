@@ -705,25 +705,21 @@ function delta3()
         Λ3 = dual(dyn3)
         Λ4 = dual(dyn4)
 
-        λ1c = Λ1 ./ w
         λ1 = vcat(
                   -D0' * Λ1,
-                  λ1c,
+                  Λ1 ./ w,
                  )
-        λ2c = Λ2 ./ w
         λ2 = vcat(
                   -D0' * Λ2,
-                  λ2c,
+                  Λ2 ./ w,
                  )
-        λ3c = Λ3 ./ w
         λ3 = vcat(
                   -D0' * Λ3,
-                  λ3c,
+                  Λ3 ./ w,
                  )
-        λ4c = Λ4 ./ w
         λ4 = vcat(
                   -D0' * Λ4,
-                  λ4c,
+                  Λ4 ./ w,
                  )
 
         # XXX: i think the minus sign here comes from JuMP.jl dual variable conventions?
@@ -731,6 +727,19 @@ function delta3()
         λ2 = -λ2
         λ3 = -λ3
         λ4 = -λ4
+
+        #
+        # Rescale costate and make continuous
+        #
+
+        λ4 = λ4 ./ norm(λ4[end,4:6])
+        λ4c = λ4[2:end,:]
+        λ3 = λ3 ./ norm(λ3[end,4:6]) .* norm(λ4[1,4:6])
+        λ3c = λ3[2:end,:]
+        λ2 = λ2 ./ norm(λ2[end,4:6]) .* norm(λ3[1,4:6])
+        λ2c = λ2[2:end,:]
+        λ1 = λ1 ./ norm(λ1[end,4:6]) .* norm(λ2[1,4:6])
+        λ1c = λ1[2:end,:]
 
         #
         # Generate hamiltonian values from PS solution
@@ -753,16 +762,6 @@ function delta3()
         λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3)))
         λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4)))
 
-        #
-        # Rescale costate and make continuous
-        # XXX: I've rescaled the costate here but haven't rescaled the Hamiltonian values above
-        #
-
-        λ4 = λ4 ./ norm(λ4[end,4:6])
-        λ3 = λ3 ./ norm(λ3[end,4:6]) .* norm(λ4[1,4:6])
-        λ2 = λ2 ./ norm(λ2[end,4:6]) .* norm(λ3[1,4:6])
-        λ1 = λ1 ./ norm(λ1[end,4:6]) .* norm(λ2[1,4:6])
-
         λ = [λ1; λ2; λ3; λ4]
 
         λr = λ[:,1:3]
@@ -781,6 +780,8 @@ function delta3()
             r = x[1:3]; v = x[4:6]; m = x[7]; λr = x[8:10]; λv = x[11:13]; local λm = x[14]
 
             u = λv / norm(λv)
+
+            #display(H(r, v, m, λr, λv, λm, u, T, mdot))
 
             dx[1:3]   = ∂H∂λr(r, v, m, λr, λv, λm, u, T, mdot)
             dx[4:6]   = ∂H∂λv(r, v, m, λr, λv, λm, u, T, mdot)
