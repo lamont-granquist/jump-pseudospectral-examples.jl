@@ -23,7 +23,7 @@ using ForwardDiff
 foreach(include, glob("*.jl", "lib"))
 
 # CGL, LGL, LGR, LG
-const method = "LG"
+const method = "LGR"
 
 # supported by LGR and LG methods
 const integral = false
@@ -433,7 +433,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf1, x1f - x1i - w1' * F1 == 0)
+        @constraint(model, dynf1, x1f - x1i - w' * D * x1p == 0)
     end
 
     # Stage 2
@@ -458,7 +458,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf2, x2f - x2i - w2' * F2 == 0)
+        @constraint(model, dynf2, x2f - x2i - w' * D * x2p == 0)
     end
 
     # Stage 3
@@ -483,7 +483,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf3, x3f - x3i - w3' * F3 == 0)
+        @constraint(model, dynf3, x3f - x3i - w' * D * x3p == 0)
     end
 
     # Stage 4
@@ -508,7 +508,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf4, x4f - x4i - w4' * F4 == 0)
+        @constraint(model, dynf4, x4f - x4i - w' * D * x4p == 0)
     end
 
     #
@@ -696,28 +696,24 @@ function delta3()
             λ3f = -dual(dynf3)
             λ4f = -dual(dynf4)
 
-            display(D0' * Λ1)
-            display(Λ1 ./ w)
-            display(λ1f)
-
             λ1 = vcat(
-                      λ1f - D0' * Λ1,
-                      Λ1 ./ w .+ λ1f,
+                      (1+w'*D0)*λ1f - D0' * Λ1,
+                      Λ1 ./ w,
                       λ1f,
                      )
             λ2 = vcat(
-                      λ2f - D0' * Λ2,
-                      Λ2 ./ w .+ λ2f,
+                      (1+w'*D0)*λ2f - D0' * Λ2,
+                      Λ2 ./ w,
                       λ2f,
                      )
             λ3 = vcat(
-                      λ3f - D0' * Λ3,
-                      Λ3 ./ w .+ λ3f,
+                      (1+w'*D0)*λ3f - D0' * Λ3,
+                      Λ3 ./ w,
                       λ3f,
                      )
             λ4 = vcat(
-                      λ4f - D0' * Λ4,
-                      Λ4 ./ w .+ λ4f,
+                      (1+w'*D0)*λ4f - D0' * Λ4,
+                      Λ4 ./ w,
                       λ4f,
                      )
         else
@@ -738,25 +734,6 @@ function delta3()
                       Λ4 ./ w,
                      )
         end
-            display(λ1)
-            display(λ2)
-            display(λ3)
-            display(λ4)
-
-        # XXX: i think the minus sign here comes from JuMP.jl dual variable conventions?
-        #λ1 = -λ1
-        #λ2 = -λ2
-        #λ3 = -λ3
-        #λ4 = -λ4
-
-        #
-        # Rescale costate and make continuous
-        #
-
-        λ4 = λ4 ./ norm(λ4[end,4:6])
-        λ3 = λ3 ./ norm(λ3[end,4:6]) .* norm(λ4[1,4:6])
-        λ2 = λ2 ./ norm(λ2[end,4:6]) .* norm(λ3[1,4:6])
-        λ1 = λ1 ./ norm(λ1[end,4:6]) .* norm(λ2[1,4:6])
 
         #
         # Extract subsets of the costate
