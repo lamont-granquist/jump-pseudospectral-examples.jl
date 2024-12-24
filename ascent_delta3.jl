@@ -433,7 +433,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf1, x1f - x1i - w' * D * x1p == 0)
+        @constraint(model, dynf1, x1f - x1i - w' * D * x1p == 0) # Algorithm 902 paper, eq 19
     end
 
     # Stage 2
@@ -458,7 +458,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf2, x2f - x2i - w' * D * x2p == 0)
+        @constraint(model, dynf2, x2f - x2i - w' * D * x2p == 0) # Algorithm 902 paper, eq 19
     end
 
     # Stage 3
@@ -483,7 +483,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf3, x3f - x3i - w' * D * x3p == 0)
+        @constraint(model, dynf3, x3f - x3i - w' * D * x3p == 0) # Algorithm 902 paper, eq 19
     end
 
     # Stage 4
@@ -508,7 +508,7 @@ function delta3()
     end
 
     if method == "LG"
-        @constraint(model, dynf4, x4f - x4i - w' * D * x4p == 0)
+        @constraint(model, dynf4, x4f - x4i - w' * D * x4p == 0) # Algorithm 902 paper, eq 19
     end
 
     #
