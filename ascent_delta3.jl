@@ -23,7 +23,7 @@ using ForwardDiff
 foreach(include, glob("*.jl", "lib"))
 
 # CGL, LGL, LGR, LG
-const method = "LGR"
+const method = "LG"
 
 # supported by LGR and LG methods
 const integral = false
@@ -32,7 +32,7 @@ const integral = false
 const costate = true
 
 # number of grid points
-const N = 35
+const N = 20
 
 #
 # Earth
@@ -311,15 +311,15 @@ function delta3()
     # Endpoint variable slices
     #
 
-    x1i = vcat(r1[1,:], v1[1,:], m1[1])
-    x2i = vcat(r2[1,:], v2[1,:], m2[1])
-    x3i = vcat(r3[1,:], v3[1,:], m3[1])
-    x4i = vcat(r4[1,:], v4[1,:], m4[1])
+    x1i = hcat(r1[1,:]', v1[1,:]', m1[1])
+    x2i = hcat(r2[1,:]', v2[1,:]', m2[1])
+    x3i = hcat(r3[1,:]', v3[1,:]', m3[1])
+    x4i = hcat(r4[1,:]', v4[1,:]', m4[1])
 
-    x1f = vcat(r1[N,:], v1[N,:], m1[N])
-    x2f = vcat(r2[N,:], v2[N,:], m2[N])
-    x3f = vcat(r3[N,:], v3[N,:], m3[N])
-    x4f = vcat(r4[N,:], v4[N,:], m4[N])
+    x1f = hcat(r1[N,:]', v1[N,:]', m1[N])
+    x2f = hcat(r2[N,:]', v2[N,:]', m2[N])
+    x3f = hcat(r3[N,:]', v3[N,:]', m3[N])
+    x4f = hcat(r4[N,:]', v4[N,:]', m4[N])
 
     #
     # Collocated variable slices
@@ -427,16 +427,13 @@ function delta3()
              )
 
     if integral
-        @constraint(model, x1c == x1i' .+ A1 * F1)
-
-        if method == "LG"
-            @constraint(model, x1f == x1i + F1' * w1)
-        end
+        @constraint(model, x1c == x1i .+ A1 * F1)
     else
-        @constraint(model, dyn1, D1 * x1p == F1)
-        if method == "LG"
-            @constraint(model, x1f == x1i + F1' * w1)
-        end
+        @constraint(model, dyn1, D * x1p - F1 * (tf1 - ti1) ./ 2 == 0)
+    end
+
+    if method == "LG"
+        @constraint(model, dynf1, x1f - x1i - w1' * F1 == 0)
     end
 
     # Stage 2
@@ -455,18 +452,14 @@ function delta3()
              )
 
     if integral
-        @constraint(model, x2c == x2i' .+ A2 * F2)
-
-        if method == "LG"
-            @constraint(model, x2f == x2i + F2' * w2)
-        end
+        @constraint(model, x2c == x2i .+ A2 * F2)
     else
-        @constraint(model, dyn2, D2 * x2p == F2)
-        if method == "LG"
-            @constraint(model, x2f == x2i + F2' * w2)
-        end
+        @constraint(model, dyn2, D * x2p - F2 * (tf2 - ti2) ./ 2 == 0)
     end
 
+    if method == "LG"
+        @constraint(model, dynf2, x2f - x2i - w2' * F2 == 0)
+    end
 
     # Stage 3
 
@@ -484,17 +477,13 @@ function delta3()
              )
 
     if integral
-        @constraint(model, x3c == x3i' .+ A3 * F3)
-
-        if method == "LG"
-            @constraint(model, x3f == x3i + F3' * w3)
-        end
+        @constraint(model, x3c == x3i .+ A3 * F3)
     else
-        @constraint(model, dyn3, D3 * x3p == F3)
+        @constraint(model, dyn3, D * x3p - F3 * (tf3 - ti3) ./ 2 == 0)
+    end
 
-        if method == "LG"
-            @constraint(model, x3f == x3i + F3' * w3)
-        end
+    if method == "LG"
+        @constraint(model, dynf3, x3f - x3i - w3' * F3 == 0)
     end
 
     # Stage 4
@@ -513,17 +502,13 @@ function delta3()
              )
 
     if integral
-        @constraint(model, x4c == x4i' .+ A4 * F4)
-
-        if method == "LG"
-            @constraint(model, x4f == x4i + F4' * w4)
-        end
+        @constraint(model, x4c == x4i .+ A4 * F4)
     else
-        @constraint(model, dyn4, D4 * x4p == F4)
+        @constraint(model, dyn4, D * x4p - F4 * (tf4 - ti4) ./ 2 == 0)
+    end
 
-        if method == "LG"
-            @constraint(model, x4f == x4i + F4' * w4)
-        end
+    if method == "LG"
+        @constraint(model, dynf4, x4f - x4i - w4' * F4 == 0)
     end
 
     #
@@ -700,46 +685,102 @@ function delta3()
 
         D0 = D[:, 1]
 
-        Λ1 = dual(dyn1)
-        Λ2 = dual(dyn2)
-        Λ3 = dual(dyn3)
-        Λ4 = dual(dyn4)
+        Λ1 = -dual(dyn1)
+        Λ2 = -dual(dyn2)
+        Λ3 = -dual(dyn3)
+        Λ4 = -dual(dyn4)
 
-        λ1 = vcat(
-                  -D0' * Λ1,
-                  Λ1 ./ w,
-                 )
-        λ2 = vcat(
-                  -D0' * Λ2,
-                  Λ2 ./ w,
-                 )
-        λ3 = vcat(
-                  -D0' * Λ3,
-                  Λ3 ./ w,
-                 )
-        λ4 = vcat(
-                  -D0' * Λ4,
-                  Λ4 ./ w,
-                 )
+        if method == "LG"
+            λ1f = -dual(dynf1)
+            λ2f = -dual(dynf2)
+            λ3f = -dual(dynf3)
+            λ4f = -dual(dynf4)
+
+            display(D0' * Λ1)
+            display(Λ1 ./ w)
+            display(λ1f)
+
+            λ1 = vcat(
+                      λ1f - D0' * Λ1,
+                      Λ1 ./ w .+ λ1f,
+                      λ1f,
+                     )
+            λ2 = vcat(
+                      λ2f - D0' * Λ2,
+                      Λ2 ./ w .+ λ2f,
+                      λ2f,
+                     )
+            λ3 = vcat(
+                      λ3f - D0' * Λ3,
+                      Λ3 ./ w .+ λ3f,
+                      λ3f,
+                     )
+            λ4 = vcat(
+                      λ4f - D0' * Λ4,
+                      Λ4 ./ w .+ λ4f,
+                      λ4f,
+                     )
+        else
+            λ1 = vcat(
+                      -D0' * Λ1,
+                      Λ1 ./ w,
+                     )
+            λ2 = vcat(
+                      -D0' * Λ2,
+                      Λ2 ./ w,
+                     )
+            λ3 = vcat(
+                      -D0' * Λ3,
+                      Λ3 ./ w,
+                     )
+            λ4 = vcat(
+                      -D0' * Λ4,
+                      Λ4 ./ w,
+                     )
+        end
+            display(λ1)
+            display(λ2)
+            display(λ3)
+            display(λ4)
 
         # XXX: i think the minus sign here comes from JuMP.jl dual variable conventions?
-        λ1 = -λ1
-        λ2 = -λ2
-        λ3 = -λ3
-        λ4 = -λ4
+        #λ1 = -λ1
+        #λ2 = -λ2
+        #λ3 = -λ3
+        #λ4 = -λ4
 
         #
         # Rescale costate and make continuous
         #
 
         λ4 = λ4 ./ norm(λ4[end,4:6])
-        λ4c = λ4[2:end,:]
         λ3 = λ3 ./ norm(λ3[end,4:6]) .* norm(λ4[1,4:6])
-        λ3c = λ3[2:end,:]
         λ2 = λ2 ./ norm(λ2[end,4:6]) .* norm(λ3[1,4:6])
-        λ2c = λ2[2:end,:]
         λ1 = λ1 ./ norm(λ1[end,4:6]) .* norm(λ2[1,4:6])
-        λ1c = λ1[2:end,:]
+
+        #
+        # Extract subsets of the costate
+        #
+
+        if method == "LG"
+            λ1c = λ1[2:end-1,:]
+            λ2c = λ2[2:end-1,:]
+            λ3c = λ3[2:end-1,:]
+            λ4c = λ4[2:end-1,:]
+            λ1p = λ1[1:end-1,:]
+            λ2p = λ2[1:end-1,:]
+            λ3p = λ3[1:end-1,:]
+            λ4p = λ4[1:end-1,:]
+        else
+            λ1c = λ1[2:end,:]
+            λ2c = λ2[2:end,:]
+            λ3c = λ3[2:end,:]
+            λ4c = λ4[2:end,:]
+            λ1p = λ1
+            λ2p = λ2
+            λ3p = λ3
+            λ4p = λ4
+        end
 
         #
         # Generate hamiltonian values from PS solution
@@ -757,10 +798,10 @@ function delta3()
         range = LinRange(-1,1,20)
         L = lagrange_basis(ptau, range)
 
-        λ1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ1)))
-        λ2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ2)))
-        λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3)))
-        λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4)))
+        λ1 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ1p)))
+        λ2 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ2p)))
+        λ3 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ3p)))
+        λ4 = reduce(hcat,lagrange_interpolation(L, col) for col in eachcol(value.(λ4p)))
 
         λ = [λ1; λ2; λ3; λ4]
 
@@ -915,60 +956,65 @@ function delta3()
               ylabel = "Control",
               legend = false
              )
-    p5 = plot(
-              t,
-              λvnorm,
-              xlabel = "Time (s)",
-              ylabel = "λv Magnitude",
-              legend = false
-             )
-    p6 = plot(
-              t,
-              [ λvunit[:,1] λvunit[:,2] λvunit[:,3] ],
-              xlabel = "Time (s)",
-              ylabel = "λv Direction",
-              legend = false
-             )
-    p7 = plot(
-              t,
-              λm,
-              xlabel = "Time (s)",
-              ylabel = "λm",
-              legend = false
-             )
-    p8 = plot(
-              tau1,
-              H1,
+    if costate
+        p5 = plot(
+                  t,
+                  λvnorm,
+                  xlabel = "Time (s)",
+                  ylabel = "λv Magnitude",
+                  legend = false
+                 )
+        p6 = plot(
+                  t,
+                  [ λvunit[:,1] λvunit[:,2] λvunit[:,3] ],
+                  xlabel = "Time (s)",
+                  ylabel = "λv Direction",
+                  legend = false
+                 )
+        p7 = plot(
+                  t,
+                  λm,
+                  xlabel = "Time (s)",
+                  ylabel = "λm",
+                  legend = false
+                 )
+        p8 = plot(
+                  tau1,
+                  H1,
+                  xlabel = "Time (s)",
+                  ylabel = "H",
+                  legend = false
+                 )
+        plot!(
+              p8,
+              tau2,
+              H2,
               xlabel = "Time (s)",
               ylabel = "H",
               legend = false
              )
-    plot!(
-          p8,
-          tau2,
-          H2,
-          xlabel = "Time (s)",
-          ylabel = "H",
-          legend = false
-         )
-    plot!(
-          p8,
-          tau3,
-          H3,
-          xlabel = "Time (s)",
-          ylabel = "H",
-          legend = false
-         )
-    plot!(
-          p8,
-          tau4,
-          H4,
-          xlabel = "Time (s)",
-          ylabel = "H",
-          legend = false
-         )
+        plot!(
+              p8,
+              tau3,
+              H3,
+              xlabel = "Time (s)",
+              ylabel = "H",
+              legend = false
+             )
+        plot!(
+              p8,
+              tau4,
+              H4,
+              xlabel = "Time (s)",
+              ylabel = "H",
+              legend = false
+             )
 
-    display(plot(p1, p2, p3, p4, p5, p6, p7, p8, layout=(3,3), legend=false))
+        display(plot(p1, p2, p3, p4, p5, p6, p7, p8, layout=(3,3), legend=false))
+    else
+        display(plot(p1, p2, p3, p4, layout=(3,3), legend=false))
+    end
+
     readline()
 
     @assert is_solved_and_feasible(model)

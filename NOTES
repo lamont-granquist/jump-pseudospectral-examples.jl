@@ -1,6 +1,7 @@
 # TODO:
 #  - integral for LGL
-#  - costate estimation for LG/LGL
+#  - costate estimation for LGL
+#  - costate estimation for integral LGR/LG from Francolin(2013)
 #  - chebyshev-lobatto costate - Gong(2010)
 #  - better legendre-lobatto - Garrido(2023)
 #  - endpoint control estimation - Huntington(2008)
