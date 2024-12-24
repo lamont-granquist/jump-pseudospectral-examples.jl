@@ -839,9 +839,32 @@ function delta3()
         prob = ODEProblem(rocket_stage_with_drag_and_costate!, x0, (-1.0, 1.0), p)
         sol = solve(prob, Vern7(), abstol=1e-12, reltol=1e-12)
 
-        display(sol(1.0))
-        display(value.(r4[N,:]))
-        display(value.(v4[N,:]))
+        @printf "\n"
+        @printf "terminal orbit solved via indirect shooting:\n\n"
+
+        xf = sol(1.0)
+        rf = xf[1:3] * r_scale
+        vf = xf[4:6] * v_scale
+
+        oe = rv2oe(µ🜨, rf, vf)
+
+        sma = oe[1]
+        ecc = oe[2]
+        inc = oe[3]
+        lan = oe[4]
+        argp = oe[5]
+        nu = oe[6]
+
+        @printf "sma:  %.2f km\n" sma
+        @printf "ecc:  %4f\n" ecc
+        @printf "inc:  %6.2f°\n" rad2deg(inc)
+        @printf "lan:  %6.2f°\n" rad2deg(lan)
+        @printf "argp: %6.2f°\n" rad2deg(argp)
+        @printf "nu:   %6.2f°\n" rad2deg(nu)
+        @printf "\n"
+
+        @printf "rel terminal pos error: %e\n" norm( xf[1:3] - r4[N,:] ) / norm(r4[N,:])
+        @printf "rel termianl vel error: %e\n" norm( xf[4:6] - v4[N,:] ) / norm(v4[N,:])
     end
 
     #
